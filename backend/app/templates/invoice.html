@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<title>Facture {{ invoice.number }}</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+  h1 { margin: 0 0 8px 0; }
+  small { color:#666 }
+  table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+  th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+  tfoot td { font-weight: bold; }
+  .right { text-align: right; }
+  .muted { color:#6b7280; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+  .box { border:1px solid #e5e7eb; border-radius:8px; padding:12px; }
+</style>
+</head>
+<body>
+  <h1>Facture {{ invoice.number }}</h1>
+  <small>Statut: {{ invoice.status }} â€” Ã‰mise: {{ invoice.issued_date or "-" }} â€” Ã‰chÃ©ance: {{ invoice.due_date or "-" }}</small>
+
+  <div class="grid">
+    <div class="box">
+      <b>Ã‰metteur</b><br/>
+      {{ company.name }}<br/>
+      <span class="muted">Company #{{ company.id }}</span>
+    </div>
+    <div class="box">
+      <b>Client</b><br/>
+      {{ client.name }}<br/>
+      {{ client.email or "" }} {{ client.phone or "" }}
+    </div>
+  </div>
+
+  <table>
+    <thead><tr><th>Description</th><th class="right">QtÃ©</th><th class="right">PU (â‚¬)</th><th class="right">Total (â‚¬)</th></tr></thead>
+    <tbody>
+      {% for l in lines %}
+      <tr>
+        <td>{{ l.description }}</td>
+        <td class="right">{{ l.qty }}</td>
+        <td class="right">{{ (l.unit_price_cents/100)|round(2) }}</td>
+        <td class="right">{{ (l.total_cents/100)|round(2) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><td colspan="3" class="right">Sous-total</td><td class="right">{{ (summary.subtotal_cents/100)|round(2) }}</td></tr>
+      <tr><td colspan="3" class="right">TVA ({{ summary.vat_percent }}%)</td><td class="right">{{ (summary.vat_cents/100)|round(2) }}</td></tr>
+      <tr><td colspan="3" class="right">TTC</td><td class="right">{{ (summary.total_cents/100)|round(2) }}</td></tr>
+      <tr><td colspan="3" class="right">PayÃ©</td><td class="right">{{ (summary.paid_cents/100)|round(2) }}</td></tr>
+      <tr><td colspan="3" class="right">DÃ»</td><td class="right">{{ (summary.due_cents/100)|round(2) }}</td></tr>
+    </tfoot>
+  </table>
+
+  <p class="muted">GÃ©nÃ©rÃ© par CapTech ERP.</p>
+</body>
+</html>

@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy>=1.4
+databases[postgresql]
+psycopg2-binary
+pydantic
+python-dotenv
+python-jose[cryptography]
+email-validator
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+Jinja2==3.1.4
+weasyprint

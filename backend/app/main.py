@@ -1,0 +1,58 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.db import database, engine
+from app import models
+from app.routers import auth
+from app.routers import clients
+from app.routers import quotes
+from app.routers import invoices
+from app.routers import payments
+try:
+    from app.routers import reports
+    HAS_REPORTS = True
+except Exception:
+    HAS_REPORTS = False
+try:
+    from app.reporting import ensure_matviews
+    HAS_MV = True
+except Exception:
+    HAS_MV = False
+
+app = FastAPI(title="CapTech ERP Ã¢â‚¬â€ Auth + Clients + Quotes + Invoices + Payments (+ Reports)")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000","http://127.0.0.1:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+async def startup():
+    models.Base.metadata.create_all(bind=engine)
+    await database.connect()
+    if HAS_MV:
+        try:
+            await ensure_matviews()
+        except Exception:
+            pass
+
+@app.on_event("shutdown")
+async def shutdown():
+    await database.disconnect()
+
+@app.get("/healthz")
+async def healthz():
+    try:
+        row = await database.fetch_one("SELECT 1 as ok;")
+        return {"api": True, "db": bool(row and row["ok"] == 1)}
+    except Exception:
+        return {"api": True, "db": False}
+
+app.include_router(auth.router)
+app.include_router(clients.router)
+app.include_router(quotes.router)
+app.include_router(invoices.router)
+app.include_router(payments.router)
+if HAS_REPORTS:
+    app.include_router(reports.router)
