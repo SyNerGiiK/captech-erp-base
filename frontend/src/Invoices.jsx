@@ -10,7 +10,7 @@ export default function Invoices() {
     setLoading(true);
     try {
       const token = localStorage.getItem("token") || "";
-      const res = await fetch(base + "/invoices", { headers: { "Authorization": "Bearer " + token }});
+      const res = await fetch\(base\ \+\ "/invoices/",\ \{\ headers:\ \{\ "Authorization":\ "Bearer\ "\ \+\ token\ }}\);
       if (!res.ok) throw new Error("load invoices: " + res.status);
       const data = await res.json();
       setItems(data);
