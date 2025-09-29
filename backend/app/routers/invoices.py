@@ -255,3 +255,4 @@ async def public_download_invoice_pdf(invoice_id: int, token: str):
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
+
