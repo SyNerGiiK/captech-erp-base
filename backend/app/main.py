@@ -7,6 +7,7 @@ from app.routers import clients
 from app.routers import quotes
 from app.routers import invoices
 from app.routers import payments
+from app.routers.invoices import public_router
 try:
     from app.routers import reports
     HAS_REPORTS = True
@@ -53,6 +54,8 @@ app.include_router(auth.router)
 app.include_router(clients.router)
 app.include_router(quotes.router)
 app.include_router(invoices.router)
+app.include_router(invoices.public_router)
+app.include_router(public_router)
 app.include_router(payments.router)
 if HAS_REPORTS:
     app.include_router(reports.router)

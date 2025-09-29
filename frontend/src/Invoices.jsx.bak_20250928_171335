@@ -42,7 +42,7 @@ const token = (session?.token) || (auth?.token) || (localStorage.getItem("token"
   async function downloadPdf() {
     if (!sel?.id) { alert("Sélectionne une facture."); return; }
     try {
-      const res = await fetch(`${apiBase}/invoices/by-id/${sel.id}/public_url`, {
+      const res = await fetch(`${apiBase}/invoices/${sel.id}/public_url`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

@@ -10,17 +10,13 @@ export default function Invoices() {
   const [loading, setLoading] = useState(false);
   const [vat, setVat] = useState(20);
 
-  const session = (()=>{
-  try { return JSON.parse(localStorage.getItem("session") || "null"); } catch { return null; }
-})();
-const auth = (()=>{
-  try { return JSON.parse(localStorage.getItem("auth") || "null"); } catch { return null; }
-})();
-const token = (session?.token) || (auth?.token) || (localStorage.getItem("token") || "");
-
+  const session = (() => {
+    try { return JSON.parse(localStorage.getItem("session") || "null"); }
+    catch { return null; }
+  })();
+  const token = session?.token ?? "";
 
   async function refresh() {
-    if (!token) { setItems([]); alert("Connecte-toi dans l\u2019onglet Auth, puis reviens ici."); return; }
     setLoading(true);
     try {
       const res = await fetch(`${apiBase}/invoices/list?limit=50&offset=0`, {
@@ -42,7 +38,7 @@ const token = (session?.token) || (auth?.token) || (localStorage.getItem("token"
   async function downloadPdf() {
     if (!sel?.id) { alert("Sélectionne une facture."); return; }
     try {
-      const res = await fetch(`${apiBase}/invoices/by-id/${sel.id}/public_url`, {
+      const res = await fetch(`${apiBase}/invoices/${sel.id}/public_url`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

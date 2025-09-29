@@ -1,0 +1,36 @@
+# =========================================
+# file: backend/tests/test_routes_invoices.py
+# (version SANS anyio / trio, via TestClient sync)
+# =========================================
+from fastapi.testclient import TestClient
+from starlette.routing import Route
+from app.main import app
+
+client = TestClient(app)
+
+def _routes():
+    return [r for r in app.routes if isinstance(r, Route)]
+
+def _find(path: str, method: str):
+    for r in _routes():
+        if r.path == path and method.upper() in (r.methods or set()):
+            return r
+    return None
+
+def test_has_static_list_route():
+    assert _find("/invoices/_list", "GET") is not None
+
+def test_no_legacy_dynamic_root():
+    assert all(not r.path.startswith("/invoices/{") for r in _routes())
+
+def test_has_by_id_routes():
+    assert any(r.path.startswith("/invoices/by-id/{invoice_id}") for r in _routes())
+
+def test_static_list_not_captured_by_dynamic_returns_not_422():
+    # Pas besoin de token pour ce test de forme : on valide seulement qu'il ne renvoie pas 422
+    resp = client.get("/invoices/_list")
+    assert resp.status_code != 422  # 200/401/403 sont acceptés selon auth
+
+def test_by_id_path_requires_int():
+    resp = client.get("/invoices/by-id/abc")
+    assert resp.status_code == 422  # paramètre typé int → 'abc' => 422
