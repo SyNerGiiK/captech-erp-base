@@ -3,6 +3,7 @@ uvicorn[standard]
 SQLAlchemy>=1.4
 databases[postgresql]
 psycopg2-binary
+pydantic>=2.11,<3.0
 python-dotenv
 python-jose[cryptography]
 email-validator
@@ -13,4 +14,3 @@ weasyprint
 pytest
 anyio
 httpx
-pydantic>=2.11,<3.0
