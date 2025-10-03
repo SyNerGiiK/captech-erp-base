@@ -1,55 +1,46 @@
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from app.db import database, engine
 from app import models
-
-from app.routers import auth, clients, quotes, invoices, payments
-
-# Modules optionnels
+from app.routers import auth
+from app.routers import clients
+from app.routers import quotes
+from app.routers import invoices
+from app.routers import payments
+from app.routers.invoices import public_router
 try:
     from app.routers import reports
     HAS_REPORTS = True
 except Exception:
     HAS_REPORTS = False
-
 try:
     from app.reporting import ensure_matviews
     HAS_MV = True
 except Exception:
     HAS_MV = False
 
+app = FastAPI(title="CapTech ERP — Auth + Clients + Quotes + Invoices + Payments (+ Reports)")
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000","http://127.0.0.1:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+async def startup():
     models.Base.metadata.create_all(bind=engine)
     await database.connect()
     if HAS_MV:
         try:
             await ensure_matviews()
         except Exception:
-            # on ignore les erreurs de matérialisation en dev/test
             pass
-    yield
-    # Shutdown
+
+@app.on_event("shutdown")
+async def shutdown():
     await database.disconnect()
-
-
-app = FastAPI(
-    title="CapTech ERP — Auth + Clients + Quotes + Invoices + Payments (+ Reports)",
-    lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 @app.get("/healthz")
 async def healthz():
@@ -59,15 +50,12 @@ async def healthz():
     except Exception:
         return {"api": True, "db": False}
 
-
-# Routes
 app.include_router(auth.router)
 app.include_router(clients.router)
 app.include_router(quotes.router)
 app.include_router(invoices.router)
-# Monte aussi le routeur public des factures s’il existe
-if hasattr(invoices, "public_router"):
-    app.include_router(invoices.public_router)
+app.include_router(invoices.public_router)
+app.include_router(public_router)
 app.include_router(payments.router)
 if HAS_REPORTS:
     app.include_router(reports.router)

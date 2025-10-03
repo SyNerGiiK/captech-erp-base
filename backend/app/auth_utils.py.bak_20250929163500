@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
+
+from passlib.context import CryptContext
+from jose import jwt, JWTError
+
+_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def get_password_hash(password: str) -> str:
+    return _pwd.hash(password)
+
+def verify_password(plain: str, hashed: str) -> bool:
+    try:
+        return _pwd.verify(plain, hashed)
+    except Exception:
+        return False
+
+SECRET = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY") or "dev_secret_change_me"
+ALGO = "HS256"
+
+def create_access_token(sub: str, company_id: int, ttl_seconds: int = 60*60*24) -> str:
+    now = datetime.utcnow()
+    payload = {"sub": sub, "company_id": int(company_id), "exp": now + timedelta(seconds=ttl_seconds)}
+    return jwt.encode(payload, SECRET, algorithm=ALGO)
+
+def create_signed_token(kind: str, data: Dict[str, Any], ttl_seconds: int = 900) -> str:
+    now = datetime.utcnow()
+    payload = {"kind": kind, "exp": now + timedelta(seconds=ttl_seconds), **data}
+    return jwt.encode(payload, SECRET, algorithm=ALGO)
+
+def verify_signed_token(token: str, kind: Optional[str] = None) -> Dict[str, Any]:
+    try:
+        payload = jwt.decode(token, SECRET, algorithms=[ALGO])
+    except JWTError as e:
+        raise ValueError(f"invalid token: {e}")
+    if kind is not None and payload.get("kind") != kind:
+        raise ValueError("invalid kind")
+    return payload
