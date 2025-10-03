@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from typing import Optional, List
 from datetime import date
 
@@ -36,8 +36,8 @@ class ClientUpdate(BaseModel):
 
 class ClientOut(ClientBase):
     id: int
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict()
+    # TODO(pydantic v2): vérifier -> from_attributes = True
 
 # ---- Quotes ----
 class QuoteBase(BaseModel):
@@ -58,8 +58,8 @@ class QuoteOut(QuoteBase):
     id: int
     number: str
     client_id: int
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict()
+    # TODO(pydantic v2): vérifier -> from_attributes = True
 
 # ---- Invoices ----
 class InvoiceLineCreate(BaseModel):
@@ -71,8 +71,8 @@ class InvoiceLineOut(InvoiceLineCreate):
     id: int
     invoice_id: int
     total_cents: int
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict()
+    # TODO(pydantic v2): vérifier -> from_attributes = True
 
 class InvoiceBase(BaseModel):
     title: str = Field(min_length=1, max_length=200)
@@ -101,8 +101,8 @@ class InvoiceOut(BaseModel):
     client_id: int
     issued_date: Optional[date] = None
     due_date: Optional[date] = None
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict()
+    # TODO(pydantic v2): vérifier -> from_attributes = True
 
 # ---- Payments ----
 class PaymentCreate(BaseModel):
