@@ -26,3 +26,18 @@ docker-data/
 # OS
 .DS_Store
 Thumbs.db
+# --- local env & secrets
+.env
+backend/.env
+
+# --- backups générés par scripts
+.bak_pyd_v2_*
+
+# --- Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# --- Docker/volumes (si présents)
+postgres-data/
+data/

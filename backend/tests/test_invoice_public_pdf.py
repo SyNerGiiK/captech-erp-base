@@ -64,7 +64,7 @@ async def test_public_invoice_pdf_success():
         )
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            r = await ac.get(f"/invoices/public/{iid}/download.pdf", params={"token": token, "vat_percent": 20})
+            r = await ac.get(f"/public/{iid}/download.pdf", params={"token": token, "vat_percent": 20})
             assert r.status_code == 200
             ct = r.headers.get("content-type","")
             assert ct.startswith("application/pdf")
@@ -75,5 +75,5 @@ async def test_public_invoice_pdf_success():
 @pytest.mark.anyio
 async def test_public_invoice_pdf_invalid_token():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        r = await ac.get("/invoices/public/999999/download.pdf", params={"token": "not-a-valid-token"})
+        r = await ac.get("/public/999999/download.pdf", params={"token": "not-a-valid-token"})
         assert r.status_code == 401

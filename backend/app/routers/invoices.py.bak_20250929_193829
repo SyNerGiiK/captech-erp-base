@@ -1,0 +1,236 @@
+from __future__ import annotations
+
+import base64
+import hmac
+import io
+import json
+import os
+import time
+from datetime import date
+from hashlib import sha256
+from typing import Any, Dict, List
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+from sqlalchemy import and_, select
+
+from app.db import database
+from app import models
+from app.auth_utils import get_current_user
+
+# ============ Helpers ============
+
+def _rec_to_dict(rec) -> dict:
+    # databases.Record or SQLAlchemy Row -> plain dict
+    try:
+        return dict(rec._mapping)  # SQLAlchemy Row
+    except Exception:
+        try:
+            return dict(rec)       # databases.Record
+        except Exception:
+            return rec
+
+async def _load_invoice_for_company(invoice_id: int, company_id: int):
+    it = models.Invoice.__table__
+    return await database.fetch_one(
+        select(it).where(and_(it.c.id == invoice_id, it.c.company_id == company_id))
+    )
+
+async def _load_invoice(invoice_id: int):
+    it = models.Invoice.__table__
+    return await database.fetch_one(select(it).where(it.c.id == invoice_id))
+
+async def _load_lines(invoice_id: int) -> List[dict]:
+    lt = models.InvoiceLine.__table__
+    rows = await database.fetch_all(
+        select(lt).where(lt.c.invoice_id == invoice_id).order_by(lt.c.id.asc())
+    )
+    return [_rec_to_dict(r) for r in rows]
+
+def _render_invoice_pdf(inv: dict, lines: List[dict]) -> bytes:
+    total_cents = inv.get("total_cents") or 0
+    rows_html = "".join(
+        f"<tr>"
+        f"<td>{l.get('description','')}</td>"
+        f"<td style='text-align:right'>{l.get('qty') or 0}</td>"
+        f"<td style='text-align:right'>{(l.get('unit_price_cents') or 0)/100:.2f}</td>"
+        f"<td style='text-align:right'>{(l.get('total_cents') or 0)/100:.2f}</td>"
+        f"</tr>"
+        for l in lines
+    ) or "<tr><td colspan='4' style='text-align:center'>Aucune ligne</td></tr>"
+
+    html = f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Invoice {inv.get('number') or inv.get('id')}</title>
+<style>
+body {{ font-family: Arial, sans-serif; font-size: 12px; }}
+h1 {{ margin-bottom: 0; }}
+table {{ width:100%; border-collapse: collapse; margin-top: 12px; }}
+td, th {{ border: 1px solid #ccc; padding: 6px; }}
+tfoot td {{ font-weight: bold; }}
+.small {{ color: #666; font-size: 10px; }}
+</style>
+</head>
+<body>
+  <h1>Facture {inv.get('number') or inv.get('id')}</h1>
+  <div class="small">Émise le {inv.get('issued_date') or ''}</div>
+  <table>
+    <thead>
+      <tr><th>Description</th><th>Qté</th><th>PU</th><th>Total</th></tr>
+    </thead>
+    <tbody>
+      {rows_html}
+    </tbody>
+    <tfoot>
+      <tr><td colspan="3" style="text-align:right">Total</td>
+          <td style="text-align:right">{total_cents/100:.2f} {inv.get('currency') or 'EUR'}</td></tr>
+    </tfoot>
+  </table>
+</body>
+</html>
+""".strip()
+
+    from weasyprint import HTML  # import here to fail fast if missing system deps
+    return HTML(string=html, base_url=".").write_pdf()
+
+# ============ Lightweight HMAC token (no external JWT dep) ============
+
+_SECRET = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY") or "change-me-dev-secret"
+
+def _b64url(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+def _unb64url(s: str) -> bytes:
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+def _sign_token(payload: Dict[str, Any]) -> str:
+    header = {"alg": "HS256", "typ": "JWT"}
+    h64 = _b64url(json.dumps(header, separators=(",", ":"), sort_keys=True).encode())
+    p64 = _b64url(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+    to_sign = f"{h64}.{p64}".encode()
+    sig = hmac.new(_SECRET.encode(), to_sign, sha256).digest()
+    s64 = _b64url(sig)
+    return f"{h64}.{p64}.{s64}"
+
+def _verify_token(token: str, expected_kind: str | None = None) -> Dict[str, Any]:
+    try:
+        h64, p64, s64 = token.split(".")
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid token format")
+    to_sign = f"{h64}.{p64}".encode()
+    sig = hmac.new(_SECRET.encode(), to_sign, sha256).digest()
+    if not hmac.compare_digest(_b64url(sig), s64):
+        raise HTTPException(status_code=401, detail="Bad token signature")
+    payload = json.loads(_unb64url(p64))
+    if expected_kind and payload.get("kind") != expected_kind:
+        raise HTTPException(status_code=401, detail="Wrong token kind")
+    exp = payload.get("exp")
+    if isinstance(exp, int) and exp < int(time.time()):
+        raise HTTPException(status_code=401, detail="Token expired")
+    return payload
+
+def _public_base() -> str:
+    return (
+        os.getenv("PUBLIC_BASE_URL")
+        or os.getenv("BASE_URL")
+        or "http://localhost:8000"
+    ).rstrip("/")
+
+# ============ Routers ============
+
+router = APIRouter(prefix="/invoices", tags=["invoices"])
+public_router = APIRouter(tags=["public"])
+
+# ---- List / alias ----
+@router.get("/_list", operation_id="invoices_list_core")
+async def list_invoices(
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(get_current_user),
+):
+    it = models.Invoice.__table__
+    rows = await database.fetch_all(
+        select(
+            it.c.id, it.c.number, it.c.title, it.c.status, it.c.currency,
+            it.c.total_cents, it.c.issued_date, it.c.due_date, it.c.client_id,
+        )
+        .where(it.c.company_id == user["company_id"])
+        .order_by(it.c.id.desc())
+        .limit(limit).offset(offset)
+    )
+    return [_rec_to_dict(r) for r in rows]
+
+@router.get("/list", operation_id="invoices_list_alias")
+async def list_invoices_alias(
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(get_current_user),
+):
+    return await list_invoices(limit=limit, offset=offset, user=user)
+
+# ---- By-id (auth) ----
+@router.get("/by-id/{invoice_id:int}", operation_id="invoice_by_id")
+async def get_invoice_by_id(invoice_id: int, user: dict = Depends(get_current_user)):
+    inv = await _load_invoice_for_company(invoice_id, int(user["company_id"]))
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return _rec_to_dict(inv)
+
+# ---- Private PDF (auth) ----
+@router.get("/by-id/{invoice_id:int}/download.pdf", operation_id="download_invoice_pdf_by_id")
+async def download_invoice_pdf(invoice_id: int, user: dict = Depends(get_current_user)):
+    inv = await _load_invoice_for_company(invoice_id, int(user["company_id"]))
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    invd = _rec_to_dict(inv)
+    lines = await _load_lines(invoice_id)
+    pdf = _render_invoice_pdf(invd, lines)
+    fname = f"invoice_{invd.get('number') or invd.get('id')}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+# ---- Public URL generator (auth) ----
+@router.get("/by-id/{invoice_id:int}/public_url", operation_id="invoice_public_url")
+async def public_url_by_id(invoice_id: int, user: dict = Depends(get_current_user)):
+    inv = await _load_invoice_for_company(invoice_id, int(user["company_id"]))
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    invd = _rec_to_dict(inv)
+    payload = {
+        "kind": "invoice_pdf",
+        "invoice_id": int(invd["id"]),
+        "company_id": int(invd["company_id"]),
+        "exp": int(time.time()) + 15 * 60,  # 15 minutes
+    }
+    token = _sign_token(payload)
+    url = f"{_public_base()}/public/{invd['id']}/download.pdf?token={token}"
+    return {"url": url}
+
+# ---- Public PDF (no auth) ----
+@public_router.get("/public/{invoice_id:int}/download.pdf", operation_id="public_download_invoice_pdf")
+async def public_download_invoice_pdf(invoice_id: int, token: str):
+    payload = _verify_token(token, expected_kind="invoice_pdf")
+    if int(payload.get("invoice_id", -1)) != int(invoice_id):
+        # token not for this invoice
+        raise HTTPException(status_code=401, detail="Token mismatch")
+    # Only allow if invoice belongs to company_id in token
+    inv = await _load_invoice_for_company(invoice_id, int(payload.get("company_id", -1)))
+    if not inv:
+        # Do not reveal existence, return 404 for wrong company or missing invoice
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    invd = _rec_to_dict(inv)
+    lines = await _load_lines(invoice_id)
+    pdf = _render_invoice_pdf(invd, lines)
+    fname = f"invoice_{invd.get('number') or invd.get('id')}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
